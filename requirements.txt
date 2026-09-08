@@ -1,0 +1,10 @@
+requests
+firebase-admin
+beautifulsoup4
+pysubs2
+deep-translator
+requests-toolbelt
+torrentool
+faster-whisper
+pysubs2
+deep-translator
