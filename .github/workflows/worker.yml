@@ -1,0 +1,62 @@
+name: Process Video Workflow
+
+on:
+  repository_dispatch:
+    types: [start_upload_job]
+
+# ⛔ එකම එපිසෝඩ් එක දෙපාරක් රන් වීම නැවැත්වීමට
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.client_payload.anilist_id }}-${{ github.event.client_payload.episode }}
+  cancel-in-progress: true
+
+jobs:
+  process_video:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Cache Python Packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('.github/workflows/*.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install System Dependencies (Aria2, FFmpeg & Cloudflare WARP)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y aria2 ffmpeg
+          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+          sudo apt-get update && sudo apt-get install -y cloudflare-warp
+          warp-cli --accept-tos registration new
+          warp-cli --accept-tos mode proxy
+          warp-cli --accept-tos proxy port 40000
+          warp-cli --accept-tos connect
+          sleep 3
+
+      - name: Install Python Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install google-api-core==2.34.0 requests firebase-admin pysubs2 deep-translator requests-toolbelt torrentool beautifulsoup4 python-dotenv faster-whisper chardet requests[socks]
+
+      - name: Create Firebase Service Account JSON
+        env: 
+          FIREBASE_JSON: ${{ secrets.FIREBASE_JSON }} 
+        run: |
+          echo "$FIREBASE_JSON" > serviceAccountKey.json
+
+      - name: Run Worker Script
+        env:
+          PYTHONUNBUFFERED: 1
+          JOB_PAYLOAD: ${{ toJSON(github.event.client_payload) }}
+          FIREBASE_DB_URL: ${{ secrets.FIREBASE_DB_URL }}
+        run: python worker.py
